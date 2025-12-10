@@ -2,7 +2,7 @@
   "name": "bootshot-data-manager",
   "version": "1.0.0",
   "description": "Data manager for foodbank pantry/clinic/pharmacy",
-	"main": "./out/main/index.js",
+  "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -21,6 +21,7 @@
     "vite": "^5.0.0"
   },
   "dependencies": {
+    "electron-store": "^11.0.2",
     "react": "^18.0.0",
     "react-dom": "^18.0.0"
   }
