@@ -1,9 +1,10 @@
 import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import { join } from "path";
-import { getDbSettings, setDbSettings } from "./modules/settings";
+import { getDbSettings, setDbSettings, isDbInitialized } from "./modules/settings";
+import { testDbConnection } from "./modules/db";
 
 let mainWindow: BrowserWindow | null = null;
-let settingsWindow: BrowserWindow | null = null;
+let dbSettingsWindow: BrowserWindow | null = null;
 
 function createMainWindow() {
   mainWindow = new BrowserWindow({
@@ -29,51 +30,47 @@ function createMainWindow() {
   });
 }
 
-function openSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
+function openDatabaseSettingsWindow() {
+  if (dbSettingsWindow && !dbSettingsWindow.isDestroyed()) {
+    dbSettingsWindow.focus();
     return;
   }
 
   const isMac = process.platform === "darwin";
 
-  settingsWindow = new BrowserWindow({
-    title: "Settings",
-    width: 520,
-    height: 420,
+  dbSettingsWindow = new BrowserWindow({
+    title: "Database Settings",
+    width: 560,
+    height: 520,
     parent: mainWindow ?? undefined,
     resizable: false,
     minimizable: true,
     maximizable: false,
     backgroundColor: "#111111",
-
-    // ✅ Hide menu bar for this window on Windows/Linux
     autoHideMenuBar: !isMac,
-
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
     },
   });
 
-  // ✅ Also force-remove per-window menu on Windows/Linux
   if (!isMac) {
-    settingsWindow.setMenu(null);
-    settingsWindow.setMenuBarVisibility(false);
+    dbSettingsWindow.setMenu(null);
+    dbSettingsWindow.setMenuBarVisibility(false);
   }
 
   const devUrl = process.env.ELECTRON_RENDERER_URL;
 
   if (devUrl) {
-    settingsWindow.loadURL(`${devUrl}#/settings`);
+    dbSettingsWindow.loadURL(`${devUrl}#/db-settings`);
   } else {
-    settingsWindow.loadFile(join(__dirname, "../renderer/index.html"), {
-      hash: "settings",
+    dbSettingsWindow.loadFile(join(__dirname, "../renderer/index.html"), {
+      hash: "db-settings",
     });
   }
 
-  settingsWindow.on("closed", () => {
-    settingsWindow = null;
+  dbSettingsWindow.on("closed", () => {
+    dbSettingsWindow = null;
   });
 }
 
@@ -90,9 +87,9 @@ function buildMenu() {
               { role: "about" },
               { type: "separator" },
               {
-                label: "Settings...",
+                label: "Database Settings...",
                 accelerator: "Cmd+,",
-                click: () => openSettingsWindow(),
+                click: () => openDatabaseSettingsWindow(),
               },
               { type: "separator" },
               { role: "hide" },
@@ -109,9 +106,9 @@ function buildMenu() {
       label: "File",
       submenu: [
         {
-          label: "Settings...",
+          label: "Database Settings...",
           accelerator: isMac ? "Cmd+," : "Ctrl+,",
-          click: () => openSettingsWindow(),
+          click: () => openDatabaseSettingsWindow(),
         },
         { type: "separator" },
         { role: isMac ? "close" : "quit" },
@@ -146,7 +143,7 @@ function buildMenu() {
       submenu: [
         {
           label: "About",
-          click: () => openSettingsWindow(),
+          click: () => openDatabaseSettingsWindow(),
         },
       ],
     },
@@ -157,7 +154,21 @@ function buildMenu() {
 
 function registerIpc() {
   ipcMain.handle("settings:getDb", () => getDbSettings());
-  ipcMain.handle("settings:setDb", (_event, partial) => setDbSettings(partial));
+  ipcMain.handle("settings:setDb", (_event, nextFull) => setDbSettings(nextFull));
+  ipcMain.handle("settings:isDbInitialized", () => isDbInitialized());
+
+  // Test connection without saving
+  ipcMain.handle("db:testConnection", async (_event, maybeSettings) => {
+    return testDbConnection(maybeSettings);
+  });
+
+  // Used by startup flow in the main window
+  ipcMain.handle("db:attemptInitialConnection", async () => {
+    if (!isDbInitialized()) {
+      return { ok: false, message: "Database settings not configured." };
+    }
+    return testDbConnection();
+  });
 }
 
 app.whenReady().then(() => {

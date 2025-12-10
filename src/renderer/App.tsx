@@ -1,9 +1,9 @@
 import CanvasApp from "./CanvasApp";
-import SettingsPage from "./SettingsPage";
+import DatabaseSettingsPage from "./DatabaseSettingsPage";
 
 export default function App() {
   const hash = window.location.hash.toLowerCase();
-  const isSettings = hash.includes("settings");
+  const isDbSettings = hash.includes("db-settings");
 
-  return isSettings ? <SettingsPage /> : <CanvasApp />;
+  return isDbSettings ? <DatabaseSettingsPage /> : <CanvasApp />;
 }

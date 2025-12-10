@@ -11,6 +11,9 @@ export type DbSettings = {
 
 type SettingsShape = {
   db: DbSettings;
+  meta: {
+    dbInitialized: boolean;
+  };
 };
 
 const defaults: SettingsShape = {
@@ -21,6 +24,9 @@ const defaults: SettingsShape = {
     password: "",
     database: "",
     ssl: false,
+  },
+  meta: {
+    dbInitialized: false,
   },
 };
 
@@ -33,9 +39,12 @@ export function getDbSettings(): DbSettings {
   return store.get("db");
 }
 
-export function setDbSettings(partial: Partial<DbSettings>): DbSettings {
-  const current = store.get("db");
-  const next = { ...current, ...partial };
-  store.set("db", next);
-  return next;
+export function setDbSettings(nextFull: DbSettings): DbSettings {
+  store.set("db", nextFull);
+  store.set("meta.dbInitialized", true);
+  return nextFull;
+}
+
+export function isDbInitialized(): boolean {
+  return store.get("meta.dbInitialized");
 }
