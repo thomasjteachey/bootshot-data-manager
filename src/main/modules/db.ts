@@ -7,7 +7,7 @@ export type DbTestResult = {
   message: string;
 };
 
-function toConnectionOptions(s: DbSettings) {
+export function toConnectionOptions(s: DbSettings) {
   const base: any = {
     host: s.host,
     port: s.port,
@@ -15,6 +15,9 @@ function toConnectionOptions(s: DbSettings) {
     password: s.password,
     database: s.database,
     connectTimeout: 5000,
+    // Some environments rely on LOCAL INFILE for fast bulk import.
+    // Even if we don't use it today, enabling it doesn't change behavior unless invoked.
+    localInfile: true,
   };
 
   if (s.ssl) {
@@ -24,6 +27,11 @@ function toConnectionOptions(s: DbSettings) {
   }
 
   return base;
+}
+
+export async function createDbConnection(settingsOverride?: DbSettings) {
+  const s = settingsOverride ?? getDbSettings();
+  return mysql.createConnection(toConnectionOptions(s));
 }
 
 export async function testDbConnection(settingsOverride?: DbSettings): Promise<DbTestResult> {

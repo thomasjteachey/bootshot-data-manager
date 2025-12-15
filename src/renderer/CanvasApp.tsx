@@ -58,7 +58,6 @@ export default function CanvasApp() {
     const onResize = () => draw();
     window.addEventListener("resize", onResize);
 
-    // Initial draw (may be empty until status loads)
     draw();
 
     return () => {
@@ -74,56 +73,60 @@ export default function CanvasApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
-  // Startup DB messaging flow
+  const runConnectionStatusFlow = async () => {
+    const initialized = await window.bootshot.settings.isDbInitialized();
+
+    if (!initialized) {
+      setStatus([
+        { text: "No database connection is configured yet." },
+        { text: "Please set one up via File → Database Settings." },
+      ]);
+      return;
+    }
+
+    setStatus([{ text: "Attempting to establish database connection..." }]);
+
+    const res = await window.bootshot.db.attemptInitialConnection();
+
+    if (res.ok) {
+      setStatus([{ text: "Database connection established.", tone: "success" }]);
+    } else {
+      const msg = res.message
+        ? `Database connection failed: ${res.message}`
+        : "Database connection failed.";
+      setStatus([{ text: msg, tone: "error" }]);
+    }
+  };
+
+  // Startup DB messaging flow + refresh after save
   useEffect(() => {
     let cancelled = false;
 
-    const run = async () => {
-      const initialized = await window.bootshot.settings.isDbInitialized();
-
-      if (!initialized) {
+    const safeRun = async () => {
+      try {
         if (cancelled) return;
-        setStatus([
-          {
-            text:
-              "No database connection is configured yet.",
-          },
-          {
-            text:
-              "Please set one up via File → Database Settings.",
-          },
-        ]);
-        return;
-      }
-
-      if (cancelled) return;
-      setStatus([{ text: "Attempting to establish database connection..." }]);
-
-      const res = await window.bootshot.db.attemptInitialConnection();
-
-      if (cancelled) return;
-
-      if (res.ok) {
-        setStatus([
-          { text: "Database connection established.", tone: "success" },
-        ]);
-      } else {
-        const msg = res.message ? `Database connection failed: ${res.message}` : "Database connection failed.";
-        setStatus([{ text: msg, tone: "error" }]);
+        await runConnectionStatusFlow();
+      } catch {
+        if (!cancelled) {
+          setStatus([
+            { text: "Database connection check failed unexpectedly.", tone: "error" },
+          ]);
+        }
       }
     };
 
-    run().catch(() => {
-      if (!cancelled) {
-        setStatus([
-          { text: "Database connection check failed unexpectedly.", tone: "error" },
-        ]);
-      }
-    });
+    safeRun();
+
+    const off =
+      window.bootshot?.ui?.onDbSettingsSaved?.(() => {
+        safeRun();
+      }) ?? undefined;
 
     return () => {
       cancelled = true;
+      if (off) off();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
