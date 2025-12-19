@@ -68,7 +68,7 @@ export default function MetricsExportPanel(props: { onClose: () => void }) {
           <div style={{ fontSize: 18, fontWeight: 700 }}>Export Monthly Metrics</div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4, lineHeight: 1.35 }}>
             Saves a CSV for the last 12 months (including the current month) plus an ANNUAL rollup row, with absolute counts and %
-            of total persons for cross-program usage (pharmacy/pantry/clinic + household pantry).
+            of served totals (per system) for cross-program usage (pharmacy/pantry/clinic + household pantry).
           </div>
         </div>
 

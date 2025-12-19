@@ -49,7 +49,6 @@ WITH RECURSIVE
       /* first day of this month */
       STR_TO_DATE(DATE_FORMAT(CURDATE(), '%Y-%m-01'), '%Y-%m-%d') AS this_month_d
   ),
-
   months AS (
     SELECT (SELECT start_d FROM params) AS month_start
     UNION ALL
@@ -59,24 +58,22 @@ WITH RECURSIVE
   ),
 
   pantry_events AS (
+    /* pantry_export.\`Visit Date\` joined via person.pantry_client_id */
     SELECT
       p.person_id,
-      STR_TO_DATE(DATE_FORMAT(pe_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
+      STR_TO_DATE(DATE_FORMAT(x.pe_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
     FROM (
       SELECT
         CAST(TRIM(pe.\`Client ID\`) AS UNSIGNED) AS client_id_u,
-        COALESCE(
-          CASE
-            WHEN pe.\`Visit Date\` IS NULL OR TRIM(pe.\`Visit Date\`) = '' THEN NULL
-            WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%Y-%m-%d')
-            WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
-              STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%m/%d/%Y'),
-              STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%m/%d/%y')
-            )
-            ELSE NULL
-          END,
-          NULL
-        ) AS pe_d
+        CASE
+          WHEN pe.\`Visit Date\` IS NULL OR TRIM(pe.\`Visit Date\`) = '' THEN NULL
+          WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(pe.\`Visit Date\`), ' ', 1), 'T', 1), '%Y-%m-%d')
+          WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(pe.\`Visit Date\`), ' ', 1), 'T', 1), '%m/%d/%Y'),
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(pe.\`Visit Date\`), ' ', 1), 'T', 1), '%m/%d/%y')
+          )
+          ELSE NULL
+        END AS pe_d
       FROM pantry_export pe
       WHERE TRIM(pe.\`Client ID\`) REGEXP '^[0-9]+$'
     ) x
@@ -89,32 +86,22 @@ WITH RECURSIVE
   ),
 
   pharmacy_events AS (
+    /* pharmacy_pickup_date_export.\`RX PICKED UP\` joined via person.pharmacy_pat_key to export.\`PAT KEY\` */
     SELECT
       p.person_id,
-      STR_TO_DATE(DATE_FORMAT(px_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
+      STR_TO_DATE(DATE_FORMAT(x.px_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
     FROM (
       SELECT
         CAST(TRIM(px.\`PAT KEY\`) AS UNSIGNED) AS pat_key_u,
-        COALESCE(
-          CASE
-            WHEN px.\`RX PICKED UP\` IS NULL OR TRIM(px.\`RX PICKED UP\`) = '' THEN NULL
-            WHEN TRIM(px.\`RX PICKED UP\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN STR_TO_DATE(TRIM(px.\`RX PICKED UP\`), '%Y-%m-%d')
-            WHEN TRIM(px.\`RX PICKED UP\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
-              STR_TO_DATE(TRIM(px.\`RX PICKED UP\`), '%m/%d/%Y'),
-              STR_TO_DATE(TRIM(px.\`RX PICKED UP\`), '%m/%d/%y')
-            )
-            ELSE NULL
-          END,
-          CASE
-            WHEN px.\`RX DATE\` IS NULL OR TRIM(px.\`RX DATE\`) = '' THEN NULL
-            WHEN TRIM(px.\`RX DATE\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN STR_TO_DATE(TRIM(px.\`RX DATE\`), '%Y-%m-%d')
-            WHEN TRIM(px.\`RX DATE\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
-              STR_TO_DATE(TRIM(px.\`RX DATE\`), '%m/%d/%Y'),
-              STR_TO_DATE(TRIM(px.\`RX DATE\`), '%m/%d/%y')
-            )
-            ELSE NULL
-          END
-        ) AS px_d
+        CASE
+          WHEN px.\`RX PICKED UP\` IS NULL OR TRIM(px.\`RX PICKED UP\`) = '' THEN NULL
+          WHEN TRIM(px.\`RX PICKED UP\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(px.\`RX PICKED UP\`), ' ', 1), 'T', 1), '%Y-%m-%d')
+          WHEN TRIM(px.\`RX PICKED UP\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(px.\`RX PICKED UP\`), ' ', 1), 'T', 1), '%m/%d/%Y'),
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(px.\`RX PICKED UP\`), ' ', 1), 'T', 1), '%m/%d/%y')
+          )
+          ELSE NULL
+        END AS px_d
       FROM pharmacy_pickup_date_export px
       WHERE TRIM(px.\`PAT KEY\`) REGEXP '^[0-9]+$'
     ) x
@@ -127,18 +114,19 @@ WITH RECURSIVE
   ),
 
   clinic_events AS (
+    /* clinic_dob_export.apptcheckindate joined via person.clinic_patientid to export.patientid */
     SELECT
       p.person_id,
-      STR_TO_DATE(DATE_FORMAT(cx_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
+      STR_TO_DATE(DATE_FORMAT(x.cx_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
     FROM (
       SELECT
         CAST(TRIM(cd.patientid) AS UNSIGNED) AS patientid_u,
         CASE
-          WHEN cd.apptdate IS NULL OR TRIM(cd.apptdate) = '' THEN NULL
-          WHEN TRIM(cd.apptdate) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN STR_TO_DATE(TRIM(cd.apptdate), '%Y-%m-%d')
-          WHEN TRIM(cd.apptdate) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
-            STR_TO_DATE(TRIM(cd.apptdate), '%m/%d/%Y'),
-            STR_TO_DATE(TRIM(cd.apptdate), '%m/%d/%y')
+          WHEN cd.apptcheckindate IS NULL OR TRIM(cd.apptcheckindate) = '' THEN NULL
+          WHEN TRIM(cd.apptcheckindate) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(cd.apptcheckindate), ' ', 1), 'T', 1), '%Y-%m-%d')
+          WHEN TRIM(cd.apptcheckindate) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(cd.apptcheckindate), ' ', 1), 'T', 1), '%m/%d/%Y'),
+            STR_TO_DATE(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(cd.apptcheckindate), ' ', 1), 'T', 1), '%m/%d/%y')
           )
           ELSE NULL
         END AS cx_d
@@ -154,121 +142,140 @@ WITH RECURSIVE
   ),
 
   pantry_household_month AS (
-    /* any pantry pickup in a month, mapped to the household(s) of the picker */
-    SELECT
-      h.household_id,
-      STR_TO_DATE(DATE_FORMAT(pe_d, '%Y-%m-01'), '%Y-%m-%d') AS month_start
-    FROM (
-      SELECT
-        CAST(TRIM(pe.\`Client ID\`) AS UNSIGNED) AS client_id_u,
-        COALESCE(
-          CASE
-            WHEN pe.\`Visit Date\` IS NULL OR TRIM(pe.\`Visit Date\`) = '' THEN NULL
-            WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%Y-%m-%d')
-            WHEN TRIM(pe.\`Visit Date\`) REGEXP '^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2,4}$' THEN COALESCE(
-              STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%m/%d/%Y'),
-              STR_TO_DATE(TRIM(pe.\`Visit Date\`), '%m/%d/%y')
-            )
-            ELSE NULL
-          END,
-          NULL
-        ) AS pe_d
-      FROM pantry_export pe
-      WHERE TRIM(pe.\`Client ID\`) REGEXP '^[0-9]+$'
-    ) x
-    JOIN person picker ON picker.pantry_client_id = x.client_id_u
-    JOIN household h ON h.person_id = picker.person_id
-    JOIN params r ON 1=1
-    WHERE x.pe_d IS NOT NULL
-      AND x.pe_d >= r.start_d
-      AND x.pe_d <  r.end_excl_d
-    GROUP BY h.household_id, STR_TO_DATE(DATE_FORMAT(x.pe_d, '%Y-%m-01'), '%Y-%m-%d')
+    /* households where ANY member had a pantry event in the month */
+    SELECT DISTINCT h.household_id, pe.month_start
+    FROM household h
+    JOIN pantry_events pe ON pe.person_id = h.person_id
   ),
 
-  person_household_pantry_month AS (
-    /* people whose household had a pantry pickup that month */
+  pantry_served_person_month AS (
+    /* all household members count as served if anyone in household visited pantry; plus pantry visitors themselves */
     SELECT DISTINCT h.person_id, phm.month_start
-    FROM household h
-    JOIN pantry_household_month phm ON phm.household_id = h.household_id
+    FROM pantry_household_month phm
+    JOIN household h ON h.household_id = phm.household_id
+    UNION
+    SELECT DISTINCT person_id, month_start FROM pantry_events
+  ),
+
+  pantry_served_by_month AS (
+    SELECT month_start, COUNT(DISTINCT person_id) AS pantry_served_total
+    FROM pantry_served_person_month
+    GROUP BY month_start
+  ),
+
+  clinic_served_by_month AS (
+    SELECT month_start, COUNT(DISTINCT person_id) AS clinic_served_total
+    FROM clinic_events
+    GROUP BY month_start
+  ),
+
+  pharmacy_served_by_month AS (
+    SELECT month_start, COUNT(DISTINCT person_id) AS pharmacy_served_total
+    FROM pharmacy_events
+    GROUP BY month_start
+  ),
+
+  pharmacy_and_pantry_by_month AS (
+    SELECT ph.month_start, COUNT(DISTINCT ph.person_id) AS pharmacy_and_pantry
+    FROM pharmacy_events ph
+    JOIN pantry_events pa
+      ON pa.person_id = ph.person_id
+     AND pa.month_start = ph.month_start
+    GROUP BY ph.month_start
+  ),
+
+  pharmacy_and_household_pantry_by_month AS (
+    SELECT ph.month_start, COUNT(DISTINCT ph.person_id) AS pharmacy_and_household_pantry
+    FROM pharmacy_events ph
+    JOIN pantry_served_person_month ps
+      ON ps.person_id = ph.person_id
+     AND ps.month_start = ph.month_start
+    GROUP BY ph.month_start
+  ),
+
+  clinic_and_household_pantry_by_month AS (
+    SELECT ce.month_start, COUNT(DISTINCT ce.person_id) AS clinic_and_household_pantry
+    FROM clinic_events ce
+    JOIN pantry_served_person_month ps
+      ON ps.person_id = ce.person_id
+     AND ps.month_start = ce.month_start
+    GROUP BY ce.month_start
+  ),
+
+  clinic_and_pharmacy_by_month AS (
+    SELECT ce.month_start, COUNT(DISTINCT ce.person_id) AS clinic_and_pharmacy
+    FROM clinic_events ce
+    JOIN pharmacy_events ph
+      ON ph.person_id = ce.person_id
+     AND ph.month_start = ce.month_start
+    GROUP BY ce.month_start
   ),
 
   monthly AS (
     SELECT
       DATE_FORMAT(m.month_start, '%Y-%m') AS period,
-      (SELECT COUNT(*) FROM person) AS total_persons,
-      /* c */
-      (
-        SELECT COUNT(DISTINCT ph.person_id)
-        FROM pharmacy_events ph
-        JOIN pantry_events pa
-          ON pa.person_id = ph.person_id
-         AND pa.month_start = m.month_start
-        WHERE ph.month_start = m.month_start
-      ) AS pharmacy_and_pantry,
-      /* d */
-      (
-        SELECT COUNT(DISTINCT ph.person_id)
-        FROM pharmacy_events ph
-        JOIN person_household_pantry_month hm
-          ON hm.person_id = ph.person_id
-         AND hm.month_start = m.month_start
-        WHERE ph.month_start = m.month_start
-      ) AS pharmacy_and_household_pantry,
-      /* e */
-      (
-        SELECT COUNT(DISTINCT ce.person_id)
-        FROM clinic_events ce
-        JOIN person_household_pantry_month hm
-          ON hm.person_id = ce.person_id
-         AND hm.month_start = m.month_start
-        WHERE ce.month_start = m.month_start
-      ) AS clinic_and_household_pantry,
-      /* f */
-      (
-        SELECT COUNT(DISTINCT ce.person_id)
-        FROM clinic_events ce
-        JOIN pharmacy_events ph
-          ON ph.person_id = ce.person_id
-         AND ph.month_start = m.month_start
-        WHERE ce.month_start = m.month_start
-      ) AS clinic_and_pharmacy
+      IFNULL(psbm.pantry_served_total, 0) AS pantry_served_total,
+      IFNULL(csbm.clinic_served_total, 0) AS clinic_served_total,
+      IFNULL(phsbm.pharmacy_served_total, 0) AS pharmacy_served_total,
+      IFNULL(papm.pharmacy_and_pantry, 0) AS pharmacy_and_pantry,
+      IFNULL(phhpm.pharmacy_and_household_pantry, 0) AS pharmacy_and_household_pantry,
+      IFNULL(chpm.clinic_and_household_pantry, 0) AS clinic_and_household_pantry,
+      IFNULL(capm.clinic_and_pharmacy, 0) AS clinic_and_pharmacy
     FROM months m
+    LEFT JOIN pantry_served_by_month psbm ON psbm.month_start = m.month_start
+    LEFT JOIN clinic_served_by_month csbm ON csbm.month_start = m.month_start
+    LEFT JOIN pharmacy_served_by_month phsbm ON phsbm.month_start = m.month_start
+    LEFT JOIN pharmacy_and_pantry_by_month papm ON papm.month_start = m.month_start
+    LEFT JOIN pharmacy_and_household_pantry_by_month phhpm ON phhpm.month_start = m.month_start
+    LEFT JOIN clinic_and_household_pantry_by_month chpm ON chpm.month_start = m.month_start
+    LEFT JOIN clinic_and_pharmacy_by_month capm ON capm.month_start = m.month_start
     ORDER BY m.month_start ASC
+  ),
+
+  pantry_served_year AS (
+    SELECT DISTINCT person_id FROM pantry_served_person_month
+  ),
+  pharmacy_served_year AS (
+    SELECT DISTINCT person_id FROM pharmacy_events
+  ),
+  clinic_served_year AS (
+    SELECT DISTINCT person_id FROM clinic_events
   ),
 
   totals AS (
     SELECT
       'ANNUAL' AS period,
-      (SELECT COUNT(*) FROM person) AS total_persons,
-      /* c: distinct people with ANY pharmacy event and ANY pantry event in the window */
+      (SELECT COUNT(*) FROM pantry_served_year) AS pantry_served_total,
+      (SELECT COUNT(*) FROM clinic_served_year) AS clinic_served_total,
+      (SELECT COUNT(*) FROM pharmacy_served_year) AS pharmacy_served_total,
+
+      /* c */
       (
         SELECT COUNT(DISTINCT ph.person_id)
-        FROM (SELECT DISTINCT person_id FROM pharmacy_events) ph
+        FROM pharmacy_served_year ph
         JOIN (SELECT DISTINCT person_id FROM pantry_events) pa
           ON pa.person_id = ph.person_id
       ) AS pharmacy_and_pantry,
+
       /* d */
       (
         SELECT COUNT(DISTINCT ph.person_id)
-        FROM (SELECT DISTINCT person_id FROM pharmacy_events) ph
-        JOIN household h ON h.person_id = ph.person_id
-        JOIN (SELECT DISTINCT household_id FROM pantry_household_month) hh
-          ON hh.household_id = h.household_id
+        FROM pharmacy_served_year ph
+        JOIN pantry_served_year ps ON ps.person_id = ph.person_id
       ) AS pharmacy_and_household_pantry,
+
       /* e */
       (
         SELECT COUNT(DISTINCT ce.person_id)
-        FROM (SELECT DISTINCT person_id FROM clinic_events) ce
-        JOIN household h ON h.person_id = ce.person_id
-        JOIN (SELECT DISTINCT household_id FROM pantry_household_month) hh
-          ON hh.household_id = h.household_id
+        FROM clinic_served_year ce
+        JOIN pantry_served_year ps ON ps.person_id = ce.person_id
       ) AS clinic_and_household_pantry,
+
       /* f */
       (
         SELECT COUNT(DISTINCT ce.person_id)
-        FROM (SELECT DISTINCT person_id FROM clinic_events) ce
-        JOIN (SELECT DISTINCT person_id FROM pharmacy_events) ph
-          ON ph.person_id = ce.person_id
+        FROM clinic_served_year ce
+        JOIN pharmacy_served_year ph ON ph.person_id = ce.person_id
       ) AS clinic_and_pharmacy
   )
 
@@ -310,6 +317,9 @@ export async function exportCrossServiceMonthlyMetricsCsv(args: {
 
     const header = [
       "period",
+      "pantry_served_total",
+      "clinic_served_total",
+      "pharmacy_served_total",
       "pharmacy_and_pantry",
       "pharmacy_and_pantry_pct",
       "pharmacy_and_household_pantry",
@@ -319,39 +329,47 @@ export async function exportCrossServiceMonthlyMetricsCsv(args: {
       "clinic_and_pharmacy",
       "clinic_and_pharmacy_pct",
     ];
-
-    const overallTotalPersons = r.length > 0 ? Number(r[0].total_persons ?? 0) : 0;
-
     const lines: string[] = [];
-    // metadata lines (requested): total persons as a standalone field
-    lines.push(["total_persons", csvEscape(overallTotalPersons)].join(","));
+    // metadata lines
+    lines.push(["window_months", "12"].join(","));
+    lines.push(["generated_at", csvEscape(new Date().toISOString())].join(","));
     lines.push(""); // blank separator line
 
     lines.push(header.join(","));
 
+
     for (const row of r) {
-      const totalPersons = overallTotalPersons;
-      const pct = (n: any) => {
+      const denomPh = Number(row.pharmacy_served_total ?? 0);
+      const denomCl = Number(row.clinic_served_total ?? 0);
+
+      const pct = (n: any, denom: number) => {
         const v = Number(n ?? 0);
-        if (!Number.isFinite(v) || totalPersons <= 0) return 0;
-        return (v * 100) / totalPersons;
+        if (!Number.isFinite(v) || denom <= 0) return 0;
+        return (v * 100) / denom;
       };
 
       const line = [
         csvEscape(row.period),
+        csvEscape(row.pantry_served_total ?? 0),
+        csvEscape(row.clinic_served_total ?? 0),
+        csvEscape(row.pharmacy_served_total ?? 0),
+
         csvEscape(row.pharmacy_and_pantry ?? 0),
-        csvEscape(pct(row.pharmacy_and_pantry)),
+        csvEscape(pct(row.pharmacy_and_pantry, denomPh)),
+
         csvEscape(row.pharmacy_and_household_pantry ?? 0),
-        csvEscape(pct(row.pharmacy_and_household_pantry)),
+        csvEscape(pct(row.pharmacy_and_household_pantry, denomPh)),
+
         csvEscape(row.clinic_and_household_pantry ?? 0),
-        csvEscape(pct(row.clinic_and_household_pantry)),
+        csvEscape(pct(row.clinic_and_household_pantry, denomCl)),
+
         csvEscape(row.clinic_and_pharmacy ?? 0),
-        csvEscape(pct(row.clinic_and_pharmacy)),
+        csvEscape(pct(row.clinic_and_pharmacy, denomCl)),
       ].join(",");
       lines.push(line);
     }
 
-    fs.writeFileSync(absPath, lines.join("\n"), "utf8");
+fs.writeFileSync(absPath, lines.join("\n"), "utf8");
     onProgress?.({ phase: "done", message: "Export complete.", rowsWritten: r.length });
 
     return {
