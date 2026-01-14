@@ -207,8 +207,8 @@ export default function DebugPanel({ onClose }: { onClose: () => void }) {
     setStatusC("Exporting...");
     try {
       const r: DebugQueryResult = await window.bootshot.debug.similarFullName({
-        minFirst,
-        minLast,
+        minRatioFirst: minFirst,
+        minRatioLast: minLast,
         sameDob,
         useSoundex,
         limit: limitC,
