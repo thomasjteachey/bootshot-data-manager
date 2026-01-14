@@ -250,7 +250,7 @@ export default function DebugPanel({ onClose }: { onClose: () => void }) {
               <Input
                 type="number"
                 min={1}
-                max={200000}
+                max={1000000}
                 value={limitA}
                 onChange={(e) => setLimitA(Number(e.target.value))}
               />
@@ -307,7 +307,7 @@ export default function DebugPanel({ onClose }: { onClose: () => void }) {
             <Input
               type="number"
               min={1}
-              max={200000}
+              max={1000000}
               value={limitB}
               onChange={(e) => setLimitB(Number(e.target.value))}
             />
@@ -354,7 +354,7 @@ export default function DebugPanel({ onClose }: { onClose: () => void }) {
             <Input
               type="number"
               min={1}
-              max={200000}
+              max={1000000}
               value={limitC}
               onChange={(e) => setLimitC(Number(e.target.value))}
             />

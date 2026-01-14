@@ -38,10 +38,12 @@ async function procedureExists(conn: any, routineName: string): Promise<boolean>
   return Array.isArray(rows) && rows.length > 0;
 }
 
+const MAX_DEBUG_EXPORT_ROWS = 1_000_000;
+
 function clampLimit(v: any, def = 200) {
   const n = Number(v);
   if (!Number.isFinite(n)) return def;
-  return Math.max(1, Math.min(2000, Math.floor(n)));
+  return Math.max(1, Math.min(MAX_DEBUG_EXPORT_ROWS, Math.floor(n)));
 }
 
 export async function debugListTables(): Promise<string[]> {
