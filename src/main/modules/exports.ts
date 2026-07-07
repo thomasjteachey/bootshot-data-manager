@@ -164,6 +164,96 @@ function isEffectivelyEmptyRow(r: string[]) {
   return true;
 }
 
+function normalizeHeaderName(name: string) {
+  return name.replace(/^\uFEFF/, "").trim();
+}
+
+function buildHeaderIndex(header: string[]): Map<string, number> {
+  const index = new Map<string, number>();
+  header.forEach((raw, i) => {
+    const name = normalizeHeaderName(raw);
+    if (name && !index.has(name)) index.set(name, i);
+  });
+  return index;
+}
+
+async function ensurePantryExportCompatibility(conn: any) {
+  const s = getDbSettings();
+  const expected = Array.from({ length: 10 }, (_, i) => i + 1).flatMap((n) => [
+    `HH Mem ${n}- ID`,
+    `HH Mem ${n}- Status`,
+    `HH Mem ${n}- Last Name`,
+    `HH Mem ${n}- First Name`,
+    `HH Mem ${n}- Date of Birth`,
+    `HH Mem ${n}- Estimated Date of Birth`,
+    `HH Mem ${n}- Age`,
+    `HH Mem ${n}- Gender Identity-Labels`,
+    `HH Mem ${n}- Gender Identity-Parent Types`,
+    `HH Mem ${n}- Phone Numbers`,
+    `HH Mem ${n}- Ethnicity-Labels`,
+    `HH Mem ${n}- Ethnicity-Parent Types`,
+    `HH Mem ${n}- Disability`,
+    `HH Mem ${n}- Landing Date`,
+    `HH Mem ${n}- Self-Identifies As`,
+    `HH Mem ${n}- Is Student`,
+    `HH Mem ${n}- Employment`,
+    `HH Mem ${n}- School Attended`,
+    `HH Mem ${n}- School Id`,
+    `HH Mem ${n}- Grade Documentation`,
+    `HH Mem ${n}- Grade Documentation Expiration`,
+    `HH Mem ${n}- Relationship to Main Client`,
+    `HH Mem ${n}- Church`,
+    `HH Mem ${n}- Full Time Employment`,
+    `HH Mem ${n}- No Income`,
+    `HH Mem ${n}- Other Income`,
+    `HH Mem ${n}- Part Time Employment`,
+    `HH Mem ${n}- Pension`,
+    `HH Mem ${n}- Public Assistance`,
+    `HH Mem ${n}- Social Security Disability (SSI/SSDI)`,
+    `HH Mem ${n}- Social Security Retirement`,
+    `HH Mem ${n}- Social Security Survivor Benefits`,
+    `HH Mem ${n}- Student Loans`,
+  ]);
+
+  const [rows] = await conn.query(
+    `SELECT column_name AS name
+     FROM information_schema.columns
+     WHERE table_schema = ?
+       AND table_name = 'pantry_export'`,
+    [s.database]
+  );
+  const existing = new Set((rows as any[]).map((r) => r?.name).filter((n) => typeof n === "string"));
+  const missing = expected.filter((name) => !existing.has(name));
+  if (missing.length === 0) return;
+
+  const alterSql = `ALTER TABLE ${qname("pantry_export")} ${missing
+    .map((name) => `ADD COLUMN ${qname(name)} text`)
+    .join(", ")}`;
+  await conn.query(alterSql);
+}
+
+async function getInsertableColumnsForConnection(conn: any, table: string): Promise<string[]> {
+  const s = getDbSettings();
+  const [rows] = await conn.query(
+    `SELECT column_name AS name, extra AS extra
+     FROM information_schema.columns
+     WHERE table_schema = ?
+       AND table_name = ?
+     ORDER BY ordinal_position ASC`,
+    [s.database, table]
+  );
+
+  const cols: string[] = [];
+  for (const r of rows as any[]) {
+    const name = r?.name;
+    const extra = (r?.extra ?? "") as string;
+    if (!name || typeof name !== "string") continue;
+    if (typeof extra === "string" && extra.toLowerCase().includes("auto_increment")) continue;
+    cols.push(name);
+  }
+  return cols;
+}
+
 export async function listExportTables(): Promise<string[]> {
   if (!isDbInitialized()) return [];
 
@@ -184,35 +274,6 @@ export async function listExportTables(): Promise<string[]> {
       if (r?.name && typeof r.name === "string") out.push(r.name);
     }
     return out;
-  } finally {
-    await conn.end();
-  }
-}
-
-async function getInsertableColumns(table: string): Promise<string[]> {
-  const s = getDbSettings();
-  const conn = await createDbConnection();
-  try {
-    const [rows] = await conn.query(
-      `SELECT column_name AS name, extra AS extra
-       FROM information_schema.columns
-       WHERE table_schema = ?
-         AND table_name = ?
-       ORDER BY ordinal_position ASC`,
-      [s.database, table]
-    );
-
-    const cols: string[] = [];
-    for (const r of rows as any[]) {
-      const name = r?.name;
-      const extra = (r?.extra ?? "") as string;
-      if (!name || typeof name !== "string") continue;
-      if (typeof extra === "string" && extra.toLowerCase().includes("auto_increment")) {
-        continue;
-      }
-      cols.push(name);
-    }
-    return cols;
   } finally {
     await conn.end();
   }
@@ -259,8 +320,15 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
     };
   }
 
-  onProgress?.({ phase: "loading", message: "Loading table schema..." });
-  const cols = await getInsertableColumns(table);
+  const schemaConn = await createDbConnection();
+  let cols: string[];
+  try {
+    onProgress?.({ phase: "loading", message: "Loading table schema..." });
+    if (table === "pantry_export") await ensurePantryExportCompatibility(schemaConn);
+    cols = await getInsertableColumnsForConnection(schemaConn, table);
+  } finally {
+    await schemaConn.end();
+  }
   if (cols.length === 0) {
     return { ok: false, message: `Could not load columns for table: ${table}` };
   }
@@ -269,8 +337,12 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
   const text = fs.readFileSync(absPath, "utf8");
 
   onProgress?.({ phase: "parsing", message: "Parsing CSV..." });
-  let rows = parseCsv(text, delimiter);
-  if (hasHeader && rows.length > 0) rows = rows.slice(1);
+  let parsedRows = parseCsv(text, delimiter);
+  const firstRow = parsedRows.length > 0 ? parsedRows[0].map(normalizeHeaderName).filter(Boolean) : [];
+  const knownColumnCount = firstRow.filter((name) => cols.includes(name)).length;
+  const inferredHeader = !hasHeader && firstRow.length > 0 && knownColumnCount === firstRow.length;
+  const header = (hasHeader || inferredHeader) && parsedRows.length > 0 ? parsedRows[0] : null;
+  let rows = header ? parsedRows.slice(1) : parsedRows;
 
   // Filter fully-empty rows
   rows = rows.filter((r) => !isEffectivelyEmptyRow(r));
@@ -278,12 +350,28 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
   const totalParsed = rows.length;
   onProgress?.({ phase: "parsed", rowsParsed: totalParsed });
 
-  // Validate + normalize lengths
+  // Validate + normalize lengths. Headered CSVs are matched by column name so
+  // Impact exports with a reduced or reordered column set still load correctly.
   const normalized: (string | null)[][] = [];
+  const headerIndex = header ? buildHeaderIndex(header) : null;
+  const unknownHeaders = header
+    ? header.map(normalizeHeaderName).filter((name) => name && !cols.includes(name))
+    : [];
+  if (unknownHeaders.length > 0) {
+    return {
+      ok: false,
+      message: `CSV header contains column(s) not found in table ${table}: ${unknownHeaders.join(", ")}.`,
+      table,
+      csvPath: absPath,
+      rowsParsed: totalParsed,
+      columnsUsed: cols.length,
+    };
+  }
+
   for (let idx = 0; idx < rows.length; idx++) {
     const r = rows[idx];
 
-    if (r.length > cols.length) {
+    if (!headerIndex && r.length > cols.length) {
       return {
         ok: false,
         message: `Row ${idx + 1} has ${r.length} columns, but table ${table} has ${cols.length}.`,
@@ -296,8 +384,8 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
 
     const out: (string | null)[] = new Array(cols.length).fill(null);
     for (let c = 0; c < cols.length; c++) {
-      if (c < r.length) out[c] = r[c];
-      else out[c] = null;
+      const sourceIndex = headerIndex ? headerIndex.get(cols[c]) : c;
+      if (sourceIndex != null && sourceIndex < r.length) out[c] = r[sourceIndex];
     }
     normalized.push(out);
   }
