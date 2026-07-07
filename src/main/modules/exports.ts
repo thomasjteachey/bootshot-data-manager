@@ -1,5 +1,8 @@
 import fs from "fs";
 import path from "path";
+import mergeHouseholdsSql from "../../../schema/procedures/merge_households_from_pantry.sql?raw";
+import mergePersonSql from "../../../schema/procedures/merge_person_from_exports_with_audit.sql?raw";
+import sweepPersonSql from "../../../schema/procedures/sweep_person_flavors_by_recency.sql?raw";
 import { createDbConnection } from "./db";
 import { getDbSettings, isDbInitialized } from "./settings";
 
@@ -42,8 +45,41 @@ async function procedureExists(conn: any, routineName: string): Promise<boolean>
   return Array.isArray(rows) && rows.length > 0;
 }
 
+function extractProcedureCreateSql(sql: string, routineName: string) {
+  const withoutDelimiter = sql
+    .replace(/^\s*DELIMITER\s+\S+\s*$/gim, "")
+    .trim();
+  const createStart = withoutDelimiter.search(/CREATE\s+(?:DEFINER=`[^`]+`@`[^`]+`\s+)?PROCEDURE/i);
+  if (createStart < 0) throw new Error(`Could not find CREATE PROCEDURE for ${routineName}`);
+
+  let createSql = withoutDelimiter.slice(createStart).replace(/\s*;;\s*$/g, "").trim();
+  // The original dump includes a DEFINER from the source database. Strip it so
+  // refreshing the procedure works for local MySQL users that do not have that
+  // account or SUPER/SET_USER_ID privileges.
+  createSql = createSql.replace(/^CREATE\s+DEFINER=`[^`]+`@`[^`]+`\s+PROCEDURE/i, "CREATE PROCEDURE");
+  return createSql;
+}
+
+async function refreshProcedure(conn: any, routineName: string, sql: string) {
+  await conn.query(`DROP PROCEDURE IF EXISTS ${qname(routineName)}`);
+  await conn.query(extractProcedureCreateSql(sql, routineName));
+}
+
 async function runNonDeleteriousPatching(conn: any, onProgress?: (p: ExportProgress) => void) {
   // This intentionally does NOT call make_everything(), because that truncates person/household.
+  // Refresh bundled procedures first. Existing installs may have stale procedure
+  // bodies (for example referencing pantry_export.client_id instead of `Client ID`).
+  const bundledProcedures = [
+    { name: "merge_person_from_exports_with_audit", sql: mergePersonSql },
+    { name: "merge_households_from_pantry", sql: mergeHouseholdsSql },
+    { name: "sweep_person_flavors_by_recency", sql: sweepPersonSql },
+  ];
+
+  for (const p of bundledProcedures) {
+    onProgress?.({ phase: "patching", message: `Refreshing procedure ${p.name}...` });
+    await refreshProcedure(conn, p.name, p.sql);
+  }
+
   const patchProcs = [
     { name: "merge_person_from_exports_with_audit", label: "Merging people..." },
     { name: "merge_households_from_pantry", label: "Updating households..." },
