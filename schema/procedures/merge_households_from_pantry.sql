@@ -238,7 +238,7 @@ BEGIN
   WHERE h.household_id <> g.merged_household_id;
 
   /* ====================================================
-     4) Unpivot HH members 1..9 directly from pantry_export
+     4) Unpivot HH members 1..10 directly from pantry_export
      ==================================================== */
   DROP TEMPORARY TABLE IF EXISTS tmp_household_members;
   CREATE TEMPORARY TABLE tmp_household_members (
@@ -400,6 +400,21 @@ BEGIN
            LEFT(NULLIF(TRIM(`HH Mem 9- Gender Identity-Labels`), ''), 500),
            LEFT(NULLIF(TRIM(`HH Mem 9- Ethnicity-Labels`), ''), 500),
            LEFT(NULLIF(TRIM(`HH Mem 9- Employment`), ''), 500)
+    FROM pantry_export
+
+    UNION ALL
+    SELECT CAST(NULLIF(TRIM(`Client ID`), '') AS UNSIGNED),
+           LEFT(NULLIF(TRIM(`HH Mem 10- First Name`), ''), 100),
+           LEFT(NULLIF(TRIM(`HH Mem 10- Last Name`),  ''), 100),
+           COALESCE(
+             STR_TO_DATE(COALESCE(NULLIF(TRIM(`HH Mem 10- Date of Birth`), ''), NULLIF(TRIM(`HH Mem 10- Estimated Date of Birth`), '')), '%Y-%m-%d'),
+             STR_TO_DATE(COALESCE(NULLIF(TRIM(`HH Mem 10- Date of Birth`), ''), NULLIF(TRIM(`HH Mem 10- Estimated Date of Birth`), '')), '%m/%d/%Y'),
+             STR_TO_DATE(COALESCE(NULLIF(TRIM(`HH Mem 10- Date of Birth`), ''), NULLIF(TRIM(`HH Mem 10- Estimated Date of Birth`), '')), '%m-%d-%Y'),
+             STR_TO_DATE(COALESCE(NULLIF(TRIM(`HH Mem 10- Date of Birth`), ''), NULLIF(TRIM(`HH Mem 10- Estimated Date of Birth`), '')), '%Y/%m/%d')
+           ),
+           LEFT(NULLIF(TRIM(`HH Mem 10- Gender Identity-Labels`), ''), 500),
+           LEFT(NULLIF(TRIM(`HH Mem 10- Ethnicity-Labels`), ''), 500),
+           LEFT(NULLIF(TRIM(`HH Mem 10- Employment`), ''), 500)
     FROM pantry_export
   ) u
   WHERE u.owner_client_id IS NOT NULL AND u.owner_client_id <> 0;
