@@ -83,7 +83,12 @@ declare global {
       exports: {
         listExportTables: () => Promise<string[]>;
         chooseCsv: () => Promise<{ canceled: boolean; path?: string }>;
-        appendCsv: (args: { table: string; csvPath: string; hasHeader?: boolean }) => Promise<AppendCsvResult>;
+        appendCsv: (args: {
+          table: string;
+          csvPath: string;
+          hasHeader?: boolean;
+          delimiter?: string;
+        }) => Promise<AppendCsvResult>;
         onProgress: (fn: (p: ExportProgress) => void) => () => void;
       };
 

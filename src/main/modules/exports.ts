@@ -14,6 +14,7 @@ export type AppendCsvArgs = {
   table: string;
   csvPath: string;
   hasHeader: boolean;
+  delimiter?: string;
   onProgress?: (p: ExportProgress) => void;
 };
 
@@ -64,12 +65,12 @@ function qname(name: string) {
   return "`" + name.replaceAll("`", "``") + "`";
 }
 
-// Minimal CSV parser (RFC4180-ish):
-// - Comma delimiter
+// Minimal delimited-text parser (RFC4180-ish):
+// - Configurable single-character delimiter (comma by default)
 // - Double quote wrapping; doubled quotes inside quotes
 // - Newlines allowed inside quotes
 // - Trims trailing \r on line endings
-function parseCsv(text: string): string[][] {
+function parseCsv(text: string, delimiter = ","): string[][] {
   const rows: string[][] = [];
 
   let row: string[] = [];
@@ -125,7 +126,7 @@ function parseCsv(text: string): string[][] {
       continue;
     }
 
-    if (ch === ",") {
+    if (ch === delimiter) {
       pushField();
       i += 1;
       continue;
@@ -219,6 +220,7 @@ async function getInsertableColumns(table: string): Promise<string[]> {
 
 export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvResult> {
   const { table, csvPath, hasHeader, onProgress } = args;
+  const delimiter = args.delimiter ?? ",";
 
   if (!isDbInitialized()) {
     return { ok: false, message: "Database settings are not configured." };
@@ -230,6 +232,14 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
 
   if (!csvPath || typeof csvPath !== "string") {
     return { ok: false, message: "No CSV selected." };
+  }
+
+  if (typeof delimiter !== "string" || delimiter.length !== 1) {
+    return { ok: false, message: "Delimiter must be exactly one character." };
+  }
+
+  if (delimiter === "\r" || delimiter === "\n" || delimiter === "\"") {
+    return { ok: false, message: "Delimiter cannot be a newline or double quote." };
   }
 
   const absPath = path.resolve(csvPath);
@@ -259,7 +269,7 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
   const text = fs.readFileSync(absPath, "utf8");
 
   onProgress?.({ phase: "parsing", message: "Parsing CSV..." });
-  let rows = parseCsv(text);
+  let rows = parseCsv(text, delimiter);
   if (hasHeader && rows.length > 0) rows = rows.slice(1);
 
   // Filter fully-empty rows

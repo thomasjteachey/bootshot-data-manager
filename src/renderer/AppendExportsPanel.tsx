@@ -17,6 +17,7 @@ export default function AppendExportsPanel({ onClose }: { onClose: () => void })
   const [selectedTable, setSelectedTable] = useState<string>("");
   const [csvPath, setCsvPath] = useState<string>("");
   const [hasHeader, setHasHeader] = useState<boolean>(false);
+  const [delimiter, setDelimiter] = useState<string>(",");
   const [progress, setProgress] = useState<Progress | null>(null);
   const [result, setResult] = useState<Result>({ kind: "idle" });
   const [status, setStatus] = useState<string>("");
@@ -48,8 +49,8 @@ export default function AppendExportsPanel({ onClose }: { onClose: () => void })
   }, []);
 
   const canAppend = useMemo(() => {
-    return !!selectedTable && !!csvPath && result.kind !== "running";
-  }, [selectedTable, csvPath, result.kind]);
+    return !!selectedTable && !!csvPath && delimiter.length === 1 && result.kind !== "running";
+  }, [selectedTable, csvPath, delimiter, result.kind]);
 
   const chooseCsv = async () => {
     setStatus("");
@@ -69,6 +70,7 @@ export default function AppendExportsPanel({ onClose }: { onClose: () => void })
         table: selectedTable,
         csvPath,
         hasHeader,
+        delimiter,
       });
 
       setResult({ kind: "done", ok: res.ok, message: res.message });
@@ -123,7 +125,8 @@ export default function AppendExportsPanel({ onClose }: { onClose: () => void })
 
       <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 14, lineHeight: 1.4 }}>
         This appends rows into one of your <code style={{ color: "#ddd" }}>*_export</code> tables.
-        CSV files are expected to match the exact column order of the table (Impact format).
+        CSV files are expected to match the exact column order of the table (Impact format). Use the
+        delimiter field for non-comma files, such as pipe-delimited exports.
         <br />
         <br />
         After the append completes, the app will also run your non-destructive patch flow (the same
@@ -159,6 +162,21 @@ export default function AppendExportsPanel({ onClose }: { onClose: () => void })
             <button onClick={chooseCsv} style={{ minWidth: 110 }}>
               Browse...
             </button>
+          </div>
+        </label>
+
+
+        <label>
+          <div style={labelStyle}>Delimiter character</div>
+          <input
+            value={delimiter}
+            onChange={(e) => setDelimiter(e.target.value.slice(0, 1))}
+            disabled={result.kind === "running"}
+            placeholder=","
+            style={{ ...fieldStyle, maxWidth: 120 }}
+          />
+          <div style={{ marginTop: 4, fontSize: 10, opacity: 0.55 }}>
+            Default is comma. Enter <code style={{ color: "#ddd" }}>|</code> for pipe-delimited files.
           </div>
         </label>
 

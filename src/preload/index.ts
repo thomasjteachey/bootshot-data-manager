@@ -93,7 +93,12 @@ contextBridge.exposeInMainWorld("bootshot", {
     listExportTables: (): Promise<string[]> => ipcRenderer.invoke("exports:listTables"),
     chooseCsv: (): Promise<{ canceled: boolean; path?: string }> =>
       ipcRenderer.invoke("exports:chooseCsv"),
-    appendCsv: (args: { table: string; csvPath: string; hasHeader?: boolean }): Promise<AppendCsvResult> =>
+    appendCsv: (args: {
+      table: string;
+      csvPath: string;
+      hasHeader?: boolean;
+      delimiter?: string;
+    }): Promise<AppendCsvResult> =>
       ipcRenderer.invoke("exports:appendCsv", args),
     onProgress: (fn: (p: ExportProgress) => void) => {
       const handler = (_: any, p: ExportProgress) => fn(p);
