@@ -165,7 +165,13 @@ function isEffectivelyEmptyRow(r: string[]) {
 }
 
 function normalizeHeaderName(name: string) {
-  return name.replace(/^\uFEFF/, "").trim();
+  let out = name.replace(/^\uFEFF/, "").trim();
+  // If a UTF-8 BOM appeared before the opening quote, the CSV parser sees the
+  // quote characters as literal text. Normalize that common export shape too.
+  if (out.length >= 2 && out.startsWith('"') && out.endsWith('"')) {
+    out = out.slice(1, -1).replace(/""/g, '"').trim();
+  }
+  return out;
 }
 
 function buildHeaderIndex(header: string[]): Map<string, number> {
@@ -334,7 +340,7 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
   }
 
   onProgress?.({ phase: "reading", message: "Reading CSV..." });
-  const text = fs.readFileSync(absPath, "utf8");
+  const text = fs.readFileSync(absPath, "utf8").replace(/^\uFEFF/, "");
 
   onProgress?.({ phase: "parsing", message: "Parsing CSV..." });
   let parsedRows = parseCsv(text, delimiter);
