@@ -189,54 +189,32 @@ export async function listExportTables(): Promise<string[]> {
   }
 }
 
-async function getInsertableColumnsFromConnection(conn: any, table: string): Promise<string[]> {
-  const s = getDbSettings();
-  const [rows] = await conn.query(
-    `SELECT column_name AS name, extra AS extra
-     FROM information_schema.columns
-     WHERE table_schema = ?
-       AND table_name = ?
-     ORDER BY ordinal_position ASC`,
-    [s.database, table]
-  );
-
-  const cols: string[] = [];
-  for (const r of rows as any[]) {
-    const name = r?.name;
-    const extra = (r?.extra ?? "") as string;
-    if (!name || typeof name !== "string") continue;
-    if (typeof extra === "string" && extra.toLowerCase().includes("auto_increment")) {
-      continue;
-    }
-    cols.push(name);
-  }
-  return cols;
-}
-
 async function getInsertableColumns(table: string): Promise<string[]> {
+  const s = getDbSettings();
   const conn = await createDbConnection();
   try {
-    return await getInsertableColumnsFromConnection(conn, table);
+    const [rows] = await conn.query(
+      `SELECT column_name AS name, extra AS extra
+       FROM information_schema.columns
+       WHERE table_schema = ?
+         AND table_name = ?
+       ORDER BY ordinal_position ASC`,
+      [s.database, table]
+    );
+
+    const cols: string[] = [];
+    for (const r of rows as any[]) {
+      const name = r?.name;
+      const extra = (r?.extra ?? "") as string;
+      if (!name || typeof name !== "string") continue;
+      if (typeof extra === "string" && extra.toLowerCase().includes("auto_increment")) {
+        continue;
+      }
+      cols.push(name);
+    }
+    return cols;
   } finally {
     await conn.end();
-  }
-}
-
-function uniqueNonEmptyHeaders(headers: string[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const h of headers) {
-    const name = h.trim();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    out.push(name);
-  }
-  return out;
-}
-
-async function addMissingTextColumns(conn: any, table: string, missingColumns: string[]) {
-  for (const col of missingColumns) {
-    await conn.query(`ALTER TABLE ${qname(table)} ADD COLUMN ${qname(col)} text`);
   }
 }
 
@@ -281,13 +259,18 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
     };
   }
 
+  onProgress?.({ phase: "loading", message: "Loading table schema..." });
+  const cols = await getInsertableColumns(table);
+  if (cols.length === 0) {
+    return { ok: false, message: `Could not load columns for table: ${table}` };
+  }
+
   onProgress?.({ phase: "reading", message: "Reading CSV..." });
   const text = fs.readFileSync(absPath, "utf8");
 
   onProgress?.({ phase: "parsing", message: "Parsing CSV..." });
-  const parsedRows = parseCsv(text, delimiter);
-  const header = hasHeader && parsedRows.length > 0 ? parsedRows[0] : null;
-  let rows = hasHeader && parsedRows.length > 0 ? parsedRows.slice(1) : parsedRows;
+  let rows = parseCsv(text, delimiter);
+  if (hasHeader && rows.length > 0) rows = rows.slice(1);
 
   // Filter fully-empty rows
   rows = rows.filter((r) => !isEffectivelyEmptyRow(r));
@@ -295,75 +278,37 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
   const totalParsed = rows.length;
   onProgress?.({ phase: "parsed", rowsParsed: totalParsed });
 
+  // Validate + normalize lengths
+  const normalized: (string | null)[][] = [];
+  for (let idx = 0; idx < rows.length; idx++) {
+    const r = rows[idx];
+
+    if (r.length > cols.length) {
+      return {
+        ok: false,
+        message: `Row ${idx + 1} has ${r.length} columns, but table ${table} has ${cols.length}.`,
+        table,
+        csvPath: absPath,
+        rowsParsed: totalParsed,
+        columnsUsed: cols.length,
+      };
+    }
+
+    const out: (string | null)[] = new Array(cols.length).fill(null);
+    for (let c = 0; c < cols.length; c++) {
+      if (c < r.length) out[c] = r[c];
+      else out[c] = null;
+    }
+    normalized.push(out);
+  }
+
+  const colSql = cols.map(qname).join(", ");
+  const insertSql = `INSERT INTO ${qname(table)} (${colSql}) VALUES ?`;
+
   const conn = await createDbConnection();
   let inserted = 0;
-  let columnsUsed = 0;
 
   try {
-    onProgress?.({ phase: "loading", message: "Loading table schema..." });
-    let cols = await getInsertableColumnsFromConnection(conn, table);
-    if (cols.length === 0) {
-      return { ok: false, message: `Could not load columns for table: ${table}` };
-    }
-
-    if (header) {
-      const headerColumns = uniqueNonEmptyHeaders(header);
-      if (headerColumns.length === 0) {
-        return { ok: false, message: "CSV header did not contain any usable column names." };
-      }
-
-      const existing = new Set(cols);
-      const missing = headerColumns.filter((h) => !existing.has(h));
-      if (missing.length > 0) {
-        onProgress?.({
-          phase: "loading",
-          message: `Adding ${missing.length} missing text column(s) to ${table}...`,
-        });
-        await addMissingTextColumns(conn, table, missing);
-        cols = await getInsertableColumnsFromConnection(conn, table);
-      }
-
-      cols = headerColumns;
-    }
-
-    // Validate + normalize lengths. Headered CSVs are matched by header name, so they can
-    // append partial exports and exports with newly added pantry/clinic fields. Headerless
-    // CSVs keep the legacy positional behavior.
-    const normalized: (string | null)[][] = [];
-    for (let idx = 0; idx < rows.length; idx++) {
-      const r = rows[idx];
-
-      if (!header && r.length > cols.length) {
-        return {
-          ok: false,
-          message: `Row ${idx + 1} has ${r.length} columns, but table ${table} has ${cols.length}.`,
-          table,
-          csvPath: absPath,
-          rowsParsed: totalParsed,
-          columnsUsed: cols.length,
-        };
-      }
-
-      const out: (string | null)[] = new Array(cols.length).fill(null);
-      if (header) {
-        for (let c = 0; c < header.length; c++) {
-          const name = header[c].trim();
-          if (!name) continue;
-          const destIdx = cols.indexOf(name);
-          if (destIdx >= 0) out[destIdx] = c < r.length ? r[c] : null;
-        }
-      } else {
-        for (let c = 0; c < cols.length; c++) {
-          if (c < r.length) out[c] = r[c];
-          else out[c] = null;
-        }
-      }
-      normalized.push(out);
-    }
-
-    columnsUsed = cols.length;
-    const colSql = cols.map(qname).join(", ");
-    const insertSql = `INSERT INTO ${qname(table)} (${colSql}) VALUES ?`;
     onProgress?.({ phase: "inserting", rowsParsed: totalParsed, rowsInserted: 0 });
 
     const batchSize = 250;
@@ -387,7 +332,7 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
       csvPath: absPath,
       rowsParsed: totalParsed,
       rowsInserted: inserted,
-      columnsUsed,
+      columnsUsed: cols.length,
     };
   } catch (err: any) {
     const msg = err?.message || String(err);
@@ -398,7 +343,7 @@ export async function appendCsvToTable(args: AppendCsvArgs): Promise<AppendCsvRe
       csvPath: absPath,
       rowsParsed: totalParsed,
       rowsInserted: inserted,
-      columnsUsed,
+      columnsUsed: cols.length,
     };
   } finally {
     await conn.end();
