@@ -384,7 +384,10 @@ function registerIpc() {
 
   ipcMain.handle(
     "exports:appendCsv",
-    async (event, args: { table: string; csvPath: string; hasHeader?: boolean }) => {
+    async (
+      event,
+      args: { table: string; csvPath: string; hasHeader?: boolean; delimiter?: string }
+    ) => {
       const sender = event.sender;
       const onProgress = (p: { phase: string; rowsParsed?: number; rowsInserted?: number; message?: string }) => {
         sender.send("exports:progress", p);
@@ -393,6 +396,7 @@ function registerIpc() {
         table: args.table,
         csvPath: args.csvPath,
         hasHeader: !!args.hasHeader,
+        delimiter: args.delimiter ?? ",",
         onProgress,
       });
     }
